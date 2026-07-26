@@ -363,11 +363,16 @@ const handleGerarDocumento = async (req, res) => {
       cpf: String(cpf).trim(),
       cbo: String(cargo.cbo),
       cargo_nome: String(cargo.nome),
+      cargo: String(cargo.nome),
       riscos: riscosTexto,
+      riscos_raw: Array.isArray(cargo.riscos) ? cargo.riscos : [riscosTexto],
       treinamentos: treinamentosTexto,
+      treinamentos_raw: Array.isArray(cargo.treinamentos) ? cargo.treinamentos : [treinamentosTexto],
       data_admissao: dataAdmissaoFormatted,
       data_geracao: dataGeracaoFormatted,
-      empresa: nomeEmpresaExibicao
+      data: dataAdmissaoFormatted || dataGeracaoFormatted,
+      empresa: nomeEmpresaExibicao,
+      dados: `${String(nome).trim()} - CPF: ${String(cpf).trim()} - Cargo: ${String(cargo.nome)} - Admissão: ${dataAdmissaoFormatted}`
     });
 
     dbStore.addColaborador(empresaId, {
