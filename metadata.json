@@ -1,0 +1,6 @@
+{
+  "name": "SST DocAuto",
+  "description": "Micro-SaaS para automação de Ordens de Serviço (OS) e Documentos de Integração de Segurança do Trabalho (SST).",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
