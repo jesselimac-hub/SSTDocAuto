@@ -1,32 +1,20 @@
 import fs from 'fs';
 import path from 'path';
-import { Cargo, TemplateDoc, Colaborador } from '../src/types.js';
 import { createDefaultDocxTemplateBuffer } from './docxEngine.js';
 
 const TEMPLATES_DIR = path.join(process.cwd(), 'templates');
 const BACKUPS_DIR = path.join(process.cwd(), 'backups');
 
 if (!fs.existsSync(TEMPLATES_DIR)) {
-  fs.mkdirSync(TEMPLATES_DIR, { recursive: true });
+  try { fs.mkdirSync(TEMPLATES_DIR, { recursive: true }); } catch (_) {}
 }
 if (!fs.existsSync(BACKUPS_DIR)) {
-  fs.mkdirSync(BACKUPS_DIR, { recursive: true });
+  try { fs.mkdirSync(BACKUPS_DIR, { recursive: true }); } catch (_) {}
 }
 
-interface CompanyStore {
-  id: string;
-  nome: string;
-  logo_url: string;
-  cargos: Cargo[];
-  templates: TemplateDoc[];
-  colaboradores: Colaborador[];
-  criado_em: string;
-  atualizado_em: string;
-}
+const companyStores = {};
 
-const companyStores: Record<string, CompanyStore> = {};
-
-function createDefaultCargos(): Cargo[] {
+function createDefaultCargos() {
   return [
     {
       id: 1,
@@ -115,31 +103,31 @@ function createDefaultCargos(): Cargo[] {
   ];
 }
 
-function ensureTemplateDiskFile(empresaId: string, template: TemplateDoc, cargoName?: string): string {
+function ensureTemplateDiskFile(empresaId, template, cargoName) {
   const fullPath = path.isAbsolute(template.caminho_arquivo_limpo)
     ? template.caminho_arquivo_limpo
     : path.join(process.cwd(), template.caminho_arquivo_limpo);
 
   const dir = path.dirname(fullPath);
   if (!fs.existsSync(dir)) {
-    fs.mkdirSync(dir, { recursive: true });
+    try { fs.mkdirSync(dir, { recursive: true }); } catch (_) {}
   }
 
   if (!fs.existsSync(fullPath)) {
     const title = cargoName || template.cargo_nome || 'SST';
     const defaultBuffer = createDefaultDocxTemplateBuffer(`ORDEM DE SERVIÇO DE SST - ${title.toUpperCase()} (${empresaId})`);
-    fs.writeFileSync(fullPath, defaultBuffer);
+    try { fs.writeFileSync(fullPath, defaultBuffer); } catch (_) {}
   }
 
   return fullPath;
 }
 
-function createDefaultTemplates(empresaId: string, cargos: Cargo[]): TemplateDoc[] {
+function createDefaultTemplates(empresaId, cargos) {
   return cargos.map(cargo => {
     const filename = `ordem_servico_${empresaId.toLowerCase()}_${cargo.nome.toLowerCase().replace(/[^a-z0-9]/g, '_')}.docx`;
     const relativePath = path.join('templates', filename);
 
-    const tmpl: TemplateDoc = {
+    const tmpl = {
       id: cargo.id,
       id_cargo: cargo.id,
       cargo_nome: cargo.nome,
@@ -155,17 +143,16 @@ function createDefaultTemplates(empresaId: string, cargos: Cargo[]): TemplateDoc
   });
 }
 
-function loadStoreFromDisk(empresaIdRaw: string): CompanyStore | null {
+function loadStoreFromDisk(empresaIdRaw) {
   const id = empresaIdRaw.toString().trim().toUpperCase();
   const idLower = id.toLowerCase();
 
   const candidateDirs = [BACKUPS_DIR, path.join('/tmp', 'sst_data')];
-  const candidateFiles: string[] = [
+  const candidateFiles = [
     `store_${idLower}.json`,
     `latest_backup_${idLower}.json`
   ];
 
-  // Procurar também por backups temporais da empresa (mais recentes primeiro)
   for (const dir of candidateDirs) {
     try {
       if (fs.existsSync(dir)) {
@@ -218,7 +205,7 @@ function loadStoreFromDisk(empresaIdRaw: string): CompanyStore | null {
           };
         }
       } catch (err) {
-        console.error(`Erro ao tentar ler backup de ${fullPath}:`, err);
+        console.error(`Erro ao carregar backup de ${fullPath}:`, err);
       }
     }
   }
@@ -226,11 +213,10 @@ function loadStoreFromDisk(empresaIdRaw: string): CompanyStore | null {
   return null;
 }
 
-function getCompanyStore(empresaIdRaw?: string): CompanyStore {
+function getCompanyStore(empresaIdRaw) {
   const id = (empresaIdRaw || 'EMP-1001').toString().trim().toUpperCase() || 'EMP-1001';
 
   if (!companyStores[id]) {
-    // Tenta carregar do disco (persistência entre reinicializações do servidor / hospedagem)
     const diskStore = loadStoreFromDisk(id);
     if (diskStore) {
       companyStores[id] = diskStore;
@@ -254,7 +240,7 @@ function getCompanyStore(empresaIdRaw?: string): CompanyStore {
         }
       }
 
-      const colaboradores: Colaborador[] = [
+      const colaboradores = [
         {
           id: 1,
           nome: 'Carlos Eduardo Silva',
@@ -297,7 +283,7 @@ function getCompanyStore(empresaIdRaw?: string): CompanyStore {
   return companyStores[id];
 }
 
-function performAutoBackup(empresaId: string, reason: string) {
+function performAutoBackup(empresaId, reason) {
   try {
     const store = companyStores[empresaId];
     if (!store) return;
@@ -330,7 +316,6 @@ function performAutoBackup(empresaId: string, reason: string) {
 
     const jsonStr = JSON.stringify(backupContent, null, 2);
 
-    // Gravação no diretório principal de backups
     const dirsToSave = [BACKUPS_DIR, path.join('/tmp', 'sst_data')];
     for (const dir of dirsToSave) {
       try {
@@ -345,7 +330,6 @@ function performAutoBackup(empresaId: string, reason: string) {
       }
     }
 
-    // Mantém no máximo 20 backups por empresa
     try {
       if (fs.existsSync(BACKUPS_DIR)) {
         const existingFiles = fs.readdirSync(BACKUPS_DIR)
@@ -369,7 +353,6 @@ function performAutoBackup(empresaId: string, reason: string) {
 
 export const dbStore = {
   getEmpresasSummary() {
-    // Escaneia os diretórios de persistência para carregar empresas que possam estar no disco
     const dirsToCheck = [BACKUPS_DIR, path.join('/tmp', 'sst_data')];
     dirsToCheck.forEach(dir => {
       try {
@@ -399,7 +382,7 @@ export const dbStore = {
     }));
   },
 
-  restoreBackup(empresaIdRaw: string | undefined, backupData: any) {
+  restoreBackup(empresaIdRaw, backupData) {
     const storeData = backupData.data || backupData;
     const empId = (empresaIdRaw || backupData.empresaId || 'EMP-1001').toString().trim().toUpperCase();
     
@@ -437,7 +420,7 @@ export const dbStore = {
     };
   },
 
-  getCompanyInfo(empresaId?: string) {
+  getCompanyInfo(empresaId) {
     const store = getCompanyStore(empresaId);
     return {
       id: store.id,
@@ -446,7 +429,7 @@ export const dbStore = {
     };
   },
 
-  updateCompanyInfo(empresaId: string | undefined, data: { nome?: string; logo_url?: string }) {
+  updateCompanyInfo(empresaId, data) {
     const store = getCompanyStore(empresaId);
     if (data.nome !== undefined && data.nome.trim()) {
       store.nome = data.nome.trim();
@@ -463,20 +446,20 @@ export const dbStore = {
     };
   },
 
-  getCargos(empresaId?: string): Cargo[] {
+  getCargos(empresaId) {
     const store = getCompanyStore(empresaId);
     return store.cargos;
   },
 
-  getCargoById(empresaId: string | undefined, id: number): Cargo | undefined {
+  getCargoById(empresaId, id) {
     const store = getCompanyStore(empresaId);
     return store.cargos.find((c) => c.id === Number(id));
   },
 
-  addCargo(empresaId: string | undefined, cargo: Omit<Cargo, 'id' | 'criado_em'>): Cargo {
+  addCargo(empresaId, cargo) {
     const store = getCompanyStore(empresaId);
     const newId = store.cargos.length > 0 ? Math.max(...store.cargos.map((c) => c.id)) + 1 : 1;
-    const newCargo: Cargo = {
+    const newCargo = {
       ...cargo,
       id: newId,
       criado_em: new Date().toISOString()
@@ -488,7 +471,7 @@ export const dbStore = {
     const fullPath = path.join(process.cwd(), relativePath);
 
     const defaultBuffer = createDefaultDocxTemplateBuffer(`ORDEM DE SERVIÇO DE SST - ${newCargo.nome.toUpperCase()} (${store.id})`);
-    fs.writeFileSync(fullPath, defaultBuffer);
+    try { fs.writeFileSync(fullPath, defaultBuffer); } catch (_) {}
 
     store.templates.push({
       id: newId,
@@ -506,7 +489,7 @@ export const dbStore = {
     return newCargo;
   },
 
-  updateCargo(empresaId: string | undefined, id: number, updatedFields: Partial<Omit<Cargo, 'id'>>): Cargo | null {
+  updateCargo(empresaId, id, updatedFields) {
     const store = getCompanyStore(empresaId);
     const index = store.cargos.findIndex((c) => c.id === Number(id));
     if (index === -1) return null;
@@ -529,7 +512,7 @@ export const dbStore = {
     return store.cargos[index];
   },
 
-  deleteCargo(empresaId: string | undefined, id: number): boolean {
+  deleteCargo(empresaId, id) {
     const store = getCompanyStore(empresaId);
     const cargoIndex = store.cargos.findIndex((c) => c.id === Number(id));
     if (cargoIndex === -1) return false;
@@ -549,7 +532,7 @@ export const dbStore = {
     return true;
   },
 
-  getTemplates(empresaId?: string): TemplateDoc[] {
+  getTemplates(empresaId) {
     const store = getCompanyStore(empresaId);
     store.templates.forEach(tmpl => {
       ensureTemplateDiskFile(store.id, tmpl);
@@ -557,7 +540,7 @@ export const dbStore = {
     return store.templates;
   },
 
-  getTemplateByCargoId(empresaId: string | undefined, idCargo: number): TemplateDoc | undefined {
+  getTemplateByCargoId(empresaId, idCargo) {
     const store = getCompanyStore(empresaId);
     const tmpl = store.templates.find((t) => t.id_cargo === Number(idCargo));
     if (tmpl) {
@@ -566,7 +549,7 @@ export const dbStore = {
     return tmpl;
   },
 
-  updateTemplateFile(empresaId: string | undefined, idCargo: number, filename: string, relativePath: string): TemplateDoc {
+  updateTemplateFile(empresaId, idCargo, filename, relativePath) {
     const store = getCompanyStore(empresaId);
     let t = store.templates.find((tmpl) => tmpl.id_cargo === Number(idCargo));
     const cargo = store.cargos.find((c) => c.id === Number(idCargo));
@@ -594,15 +577,15 @@ export const dbStore = {
     return t;
   },
 
-  getColaboradores(empresaId?: string): Colaborador[] {
+  getColaboradores(empresaId) {
     const store = getCompanyStore(empresaId);
     return store.colaboradores;
   },
 
-  addColaborador(empresaId: string | undefined, colab: Omit<Colaborador, 'id' | 'data_geracao'>): Colaborador {
+  addColaborador(empresaId, colab) {
     const store = getCompanyStore(empresaId);
     const cargo = this.getCargoById(store.id, colab.id_cargo);
-    const newColab: Colaborador = {
+    const newColab = {
       ...colab,
       id: store.colaboradores.length + 1,
       cargo_nome: cargo ? cargo.nome : 'N/A',
@@ -618,7 +601,7 @@ export const dbStore = {
     return newColab;
   },
 
-  getBackupsList(empresaId?: string) {
+  getBackupsList(empresaId) {
     const store = getCompanyStore(empresaId);
     try {
       if (!fs.existsSync(BACKUPS_DIR)) return [];
@@ -656,7 +639,7 @@ export const dbStore = {
     }
   },
 
-  getBackupFile(empresaId: string | undefined, filename: string) {
+  getBackupFile(empresaId, filename) {
     const store = getCompanyStore(empresaId);
     const safeFilename = path.basename(filename);
     const fullPath = path.join(BACKUPS_DIR, safeFilename);
@@ -667,13 +650,13 @@ export const dbStore = {
     return null;
   },
 
-  triggerManualBackup(empresaId: string | undefined, reason?: string) {
+  triggerManualBackup(empresaId, reason) {
     const store = getCompanyStore(empresaId);
     performAutoBackup(store.id, reason || 'Backup manual solicitado pelo usuário');
     return this.getBackupsList(store.id)[0];
   },
 
-  getTemplatesDir(): string {
+  getTemplatesDir() {
     return TEMPLATES_DIR;
   }
 };

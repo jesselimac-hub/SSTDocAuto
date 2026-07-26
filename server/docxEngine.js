@@ -7,7 +7,7 @@ import Docxtemplater from 'docxtemplater';
  * Cria um arquivo .docx mínimo e válido estruturalmente com as tags do Docxtemplater,
  * para garantir que o servidor já inicie com templates prontos para uso imediato.
  */
-export function createDefaultDocxTemplateBuffer(title: string = 'ORDEM DE SERVIÇO - SST'): Buffer {
+export function createDefaultDocxTemplateBuffer(title = 'ORDEM DE SERVIÇO - SST') {
   const contentTypesXml = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">
   <Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/>
@@ -90,20 +90,7 @@ export function createDefaultDocxTemplateBuffer(title: string = 'ORDEM DE SERVI�
 /**
  * Função principal de preenchimento do template .docx usando docxtemplater e pizzip
  */
-export function generateDocxFromTemplate(
-  templateBuffer: Buffer,
-  data: {
-    nome: string;
-    cpf: string;
-    cbo: string;
-    cargo_nome: string;
-    riscos: string;
-    treinamentos: string;
-    data_admissao: string;
-    data_geracao: string;
-    empresa?: string;
-  }
-): Buffer {
+export function generateDocxFromTemplate(templateBuffer, data) {
   const zip = new PizZip(templateBuffer);
   const doc = new Docxtemplater(zip, {
     paragraphLoop: true,
