@@ -1,13 +1,15 @@
 import React, { useState, useEffect } from 'react';
-import { Database, Download, RefreshCw, HardDrive, CheckCircle2, FileText, Clock, Save, ShieldCheck } from 'lucide-react';
+import { Database, Download, RefreshCw, HardDrive, CheckCircle2, FileText, Clock, Save, ShieldCheck, Upload, AlertCircle } from 'lucide-react';
 import { BackupInfo } from '../types';
-import { apiFetch } from '../lib/api';
+import { apiFetch, restoreBackup } from '../lib/api';
 
 export const BackupManager: React.FC = () => {
   const [backups, setBackups] = useState<BackupInfo[]>([]);
   const [loading, setLoading] = useState(false);
   const [creating, setCreating] = useState(false);
+  const [restoring, setRestoring] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
+  const [errorMsg, setErrorMsg] = useState<string | null>(null);
 
   const fetchBackups = async () => {
     setLoading(true);
@@ -31,6 +33,7 @@ export const BackupManager: React.FC = () => {
   const handleManualBackup = async () => {
     setCreating(true);
     setMessage(null);
+    setErrorMsg(null);
     try {
       const res = await apiFetch('/api/backups/trigger', {
         method: 'POST',
@@ -43,29 +46,64 @@ export const BackupManager: React.FC = () => {
       }
     } catch (err) {
       console.error('Erro ao acionar backup manual:', err);
+      setErrorMsg('Falha ao gerar backup no servidor.');
     } finally {
       setCreating(false);
     }
   };
 
+  const handleRestoreFile = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    setMessage(null);
+    setErrorMsg(null);
+    setRestoring(true);
+
+    const reader = new FileReader();
+    reader.onload = async (evt) => {
+      try {
+        const content = evt.target?.result as string;
+        const json = JSON.parse(content);
+        const success = await restoreBackup(json);
+        if (success) {
+          setMessage('Backup restaurado com sucesso! Recarregue a página para ver todos os dados restaurados.');
+          await fetchBackups();
+          setTimeout(() => {
+            window.location.reload();
+          }, 1500);
+        } else {
+          setErrorMsg('Não foi possível restaurar o backup no servidor. Verifique o formato do arquivo JSON.');
+        }
+      } catch (err) {
+        console.error('Erro ao ler JSON de backup:', err);
+        setErrorMsg('Arquivo JSON inválido ou corrompido.');
+      } finally {
+        setRestoring(false);
+        e.target.value = '';
+      }
+    };
+    reader.readAsText(file);
+  };
+
   const latestBackup = backups.length > 0 ? backups[0] : null;
 
   return (
-    <div className="bg-white rounded-2xl border border-slate-200/80 shadow-xs p-6 md:p-8 space-y-6">
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-6 border-b border-slate-200">
+    <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200/80 dark:border-slate-800 shadow-xs p-6 md:p-8 space-y-6">
+      <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4 pb-6 border-b border-slate-200 dark:border-slate-800">
         <div className="flex items-center gap-3">
-          <div className="p-3 bg-emerald-50 border border-emerald-100 rounded-xl text-emerald-600">
+          <div className="p-3 bg-emerald-50 dark:bg-emerald-950/60 border border-emerald-100 dark:border-emerald-900 rounded-xl text-emerald-600 dark:text-emerald-400">
             <HardDrive className="w-6 h-6" />
           </div>
           <div>
-            <h2 className="text-xl font-bold text-slate-900">Backups Automáticos do Sistema</h2>
-            <p className="text-slate-500 text-xs sm:text-sm">
-              Persistência contínua: todas as inclusões, edições de cargos, uploads de templates e emissões de documentos geram um backup automático em tempo real.
+            <h2 className="text-xl font-bold text-slate-900 dark:text-white">Backups & Persistência de Dados</h2>
+            <p className="text-slate-500 dark:text-slate-400 text-xs sm:text-sm">
+              Persistência contínua: todas as inclusões, edições de cargos e documentos geram um snapshot automático em tempo real no disco e servidor.
             </p>
           </div>
         </div>
 
-        <div className="flex items-center gap-2 shrink-0">
+        <div className="flex flex-wrap items-center gap-2 shrink-0">
           <button
             onClick={handleManualBackup}
             disabled={creating}
@@ -75,22 +113,41 @@ export const BackupManager: React.FC = () => {
             <span>{creating ? 'Salvando...' : 'Gerar Backup Agora'}</span>
           </button>
 
+          <label className="px-4 py-2.5 bg-blue-600 hover:bg-blue-700 disabled:bg-slate-300 text-white font-semibold text-xs rounded-xl flex items-center gap-2 transition-all cursor-pointer shadow-xs shrink-0">
+            <Upload className={`w-4 h-4 ${restoring ? 'animate-spin' : ''}`} />
+            <span>{restoring ? 'Restaurando...' : 'Restaurar Backup (.json)'}</span>
+            <input
+              type="file"
+              accept=".json"
+              onChange={handleRestoreFile}
+              disabled={restoring}
+              className="hidden"
+            />
+          </label>
+
           <a
             href="/api/backups/download/latest_backup.json"
             download="latest_backup.json"
-            className="px-4 py-2.5 bg-slate-900 hover:bg-slate-800 text-white font-semibold text-xs rounded-xl flex items-center gap-2 transition-all cursor-pointer shadow-xs shrink-0"
+            className="px-4 py-2.5 bg-slate-900 hover:bg-slate-800 dark:bg-slate-800 dark:hover:bg-slate-700 text-white font-semibold text-xs rounded-xl flex items-center gap-2 transition-all cursor-pointer shadow-xs shrink-0"
             title="Download do backup mais recente em formato JSON"
           >
             <Download className="w-4 h-4 text-emerald-400" />
-            <span>Baixar Último Backup (.json)</span>
+            <span>Baixar JSON</span>
           </a>
         </div>
       </div>
 
       {message && (
-        <div className="p-4 bg-emerald-50 border border-emerald-200 text-emerald-800 rounded-xl text-xs flex items-center gap-2 animate-fadeIn">
-          <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
+        <div className="p-4 bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-200 dark:border-emerald-800 text-emerald-800 dark:text-emerald-300 rounded-xl text-xs flex items-center gap-2 animate-fadeIn">
+          <CheckCircle2 className="w-4 h-4 text-emerald-600 dark:text-emerald-400 shrink-0" />
           <span>{message}</span>
+        </div>
+      )}
+
+      {errorMsg && (
+        <div className="p-4 bg-rose-50 dark:bg-rose-950/40 border border-rose-200 dark:border-rose-800 text-rose-800 dark:text-rose-300 rounded-xl text-xs flex items-center gap-2 animate-fadeIn">
+          <AlertCircle className="w-4 h-4 text-rose-600 dark:text-rose-400 shrink-0" />
+          <span>{errorMsg}</span>
         </div>
       )}
 

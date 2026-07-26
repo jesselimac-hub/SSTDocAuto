@@ -57,6 +57,20 @@ export async function updateCompanyInfo(data: { nome?: string; logo_url?: string
   return null;
 }
 
+export async function restoreBackup(backupData: any): Promise<boolean> {
+  try {
+    const res = await apiFetch('/api/backups/restore', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(backupData),
+    });
+    return res.ok;
+  } catch (err) {
+    console.error('Erro ao restaurar backup:', err);
+    return false;
+  }
+}
+
 export async function fetchEmpresasSummary(): Promise<CompanySummary[]> {
   try {
     const res = await apiFetch('/api/empresas');

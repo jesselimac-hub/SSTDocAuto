@@ -155,66 +155,143 @@ function createDefaultTemplates(empresaId: string, cargos: Cargo[]): TemplateDoc
   });
 }
 
+function loadStoreFromDisk(empresaIdRaw: string): CompanyStore | null {
+  const id = empresaIdRaw.toString().trim().toUpperCase();
+  const idLower = id.toLowerCase();
+
+  const candidateDirs = [BACKUPS_DIR, path.join('/tmp', 'sst_data')];
+  const candidateFiles: string[] = [
+    `store_${idLower}.json`,
+    `latest_backup_${idLower}.json`
+  ];
+
+  // Procurar também por backups temporais da empresa (mais recentes primeiro)
+  for (const dir of candidateDirs) {
+    try {
+      if (fs.existsSync(dir)) {
+        const files = fs.readdirSync(dir)
+          .filter(f => f.startsWith(`backup_${idLower}_`) && f.endsWith('.json'))
+          .sort()
+          .reverse();
+        candidateFiles.push(...files);
+      }
+    } catch (_) {}
+  }
+
+  for (const dir of candidateDirs) {
+    for (const file of candidateFiles) {
+      const fullPath = path.join(dir, file);
+      try {
+        if (fs.existsSync(fullPath)) {
+          const raw = fs.readFileSync(fullPath, 'utf-8');
+          const parsed = JSON.parse(raw);
+          const storeData = parsed.data || parsed;
+          const cargos = Array.isArray(storeData.cargos) ? storeData.cargos : [];
+          const templates = Array.isArray(storeData.templates) ? storeData.templates : [];
+          const colaboradores = Array.isArray(storeData.colaboradores) ? storeData.colaboradores : [];
+          
+          let nome = parsed.nome || storeData.nome || parsed.companyName;
+          if (!nome) {
+            nome = id === 'TCL-1001' ? 'TCL Tecnologia & Construções' : `Empresa ${id}`;
+          }
+
+          let logo_url = parsed.logo_url || storeData.logo_url || '';
+          if (!logo_url && id === 'TCL-1001') {
+            try {
+              const logoPath = path.join(process.cwd(), 'src', 'assets', 'images', 'tcl_logo_1785089896277.jpg');
+              if (fs.existsSync(logoPath)) {
+                const imgBuf = fs.readFileSync(logoPath);
+                logo_url = `data:image/jpeg;base64,${imgBuf.toString('base64')}`;
+              }
+            } catch (_) {}
+          }
+
+          return {
+            id,
+            nome,
+            logo_url,
+            cargos,
+            templates,
+            colaboradores,
+            criado_em: parsed.criado_em || parsed.timestamp || new Date().toISOString(),
+            atualizado_em: parsed.atualizado_em || parsed.timestamp || new Date().toISOString()
+          };
+        }
+      } catch (err) {
+        console.error(`Erro ao tentar ler backup de ${fullPath}:`, err);
+      }
+    }
+  }
+
+  return null;
+}
+
 function getCompanyStore(empresaIdRaw?: string): CompanyStore {
   const id = (empresaIdRaw || 'EMP-1001').toString().trim().toUpperCase() || 'EMP-1001';
 
   if (!companyStores[id]) {
-    const cargos = createDefaultCargos();
-    const templates = createDefaultTemplates(id, cargos);
+    // Tenta carregar do disco (persistência entre reinicializações do servidor / hospedagem)
+    const diskStore = loadStoreFromDisk(id);
+    if (diskStore) {
+      companyStores[id] = diskStore;
+    } else {
+      const cargos = createDefaultCargos();
+      const templates = createDefaultTemplates(id, cargos);
 
-    let companyName = `Empresa ${id}`;
-    let logoUrl = '';
+      let companyName = `Empresa ${id}`;
+      let logoUrl = '';
 
-    if (id === 'TCL-1001') {
-      companyName = 'TCL Tecnologia & Construções';
-      try {
-        const logoPath = path.join(process.cwd(), 'src', 'assets', 'images', 'tcl_logo_1785089896277.jpg');
-        if (fs.existsSync(logoPath)) {
-          const imgBuf = fs.readFileSync(logoPath);
-          logoUrl = `data:image/jpeg;base64,${imgBuf.toString('base64')}`;
+      if (id === 'TCL-1001') {
+        companyName = 'TCL Tecnologia & Construções';
+        try {
+          const logoPath = path.join(process.cwd(), 'src', 'assets', 'images', 'tcl_logo_1785089896277.jpg');
+          if (fs.existsSync(logoPath)) {
+            const imgBuf = fs.readFileSync(logoPath);
+            logoUrl = `data:image/jpeg;base64,${imgBuf.toString('base64')}`;
+          }
+        } catch (e) {
+          console.error('Erro ao carregar logo TCL-1001:', e);
         }
-      } catch (e) {
-        console.error('Erro ao carregar logo TCL-1001:', e);
       }
+
+      const colaboradores: Colaborador[] = [
+        {
+          id: 1,
+          nome: 'Carlos Eduardo Silva',
+          cpf: '123.456.789-00',
+          data_admissao: '2025-01-10',
+          id_cargo: 1,
+          cargo_nome: 'Pedreiro',
+          cbo: '7152-10',
+          data_geracao: new Date(Date.now() - 86400000 * 5).toISOString(),
+          empresa: companyName
+        },
+        {
+          id: 2,
+          nome: 'Mariana Santos Oliveira',
+          cpf: '987.654.321-11',
+          data_admissao: '2024-11-01',
+          id_cargo: 2,
+          cargo_nome: 'Eletricista de Manutenção',
+          cbo: '7156-15',
+          data_geracao: new Date(Date.now() - 86400000 * 2).toISOString(),
+          empresa: companyName
+        }
+      ];
+
+      companyStores[id] = {
+        id,
+        nome: companyName,
+        logo_url: logoUrl,
+        cargos,
+        templates,
+        colaboradores,
+        criado_em: new Date().toISOString(),
+        atualizado_em: new Date().toISOString()
+      };
+
+      performAutoBackup(id, `Inicialização da Empresa ID #${id}`);
     }
-
-    const colaboradores: Colaborador[] = [
-      {
-        id: 1,
-        nome: 'Carlos Eduardo Silva',
-        cpf: '123.456.789-00',
-        data_admissao: '2025-01-10',
-        id_cargo: 1,
-        cargo_nome: 'Pedreiro',
-        cbo: '7152-10',
-        data_geracao: new Date(Date.now() - 86400000 * 5).toISOString(),
-        empresa: companyName
-      },
-      {
-        id: 2,
-        nome: 'Mariana Santos Oliveira',
-        cpf: '987.654.321-11',
-        data_admissao: '2024-11-01',
-        id_cargo: 2,
-        cargo_nome: 'Eletricista de Manutenção',
-        cbo: '7156-15',
-        data_geracao: new Date(Date.now() - 86400000 * 2).toISOString(),
-        empresa: companyName
-      }
-    ];
-
-    companyStores[id] = {
-      id,
-      nome: companyName,
-      logo_url: logoUrl,
-      cargos,
-      templates,
-      colaboradores,
-      criado_em: new Date().toISOString(),
-      atualizado_em: new Date().toISOString()
-    };
-
-    performAutoBackup(id, `Inicialização da Empresa ID #${id}`);
   }
 
   return companyStores[id];
@@ -227,12 +304,16 @@ function performAutoBackup(empresaId: string, reason: string) {
 
     const timestamp = new Date().toISOString();
     const formattedDate = timestamp.replace(/[:.]/g, '-');
-    const filename = `backup_${empresaId.toLowerCase()}_${formattedDate}.json`;
-    const fullPath = path.join(BACKUPS_DIR, filename);
-    const latestPath = path.join(BACKUPS_DIR, `latest_backup_${empresaId.toLowerCase()}.json`);
+    const storeFilename = `store_${empresaId.toLowerCase()}.json`;
+    const latestFilename = `latest_backup_${empresaId.toLowerCase()}.json`;
+    const timeFilename = `backup_${empresaId.toLowerCase()}_${formattedDate}.json`;
 
     const backupContent = {
-      empresaId,
+      empresaId: store.id,
+      nome: store.nome,
+      logo_url: store.logo_url,
+      criado_em: store.criado_em,
+      atualizado_em: store.atualizado_em,
       timestamp,
       reason,
       counts: {
@@ -249,22 +330,38 @@ function performAutoBackup(empresaId: string, reason: string) {
 
     const jsonStr = JSON.stringify(backupContent, null, 2);
 
-    fs.writeFileSync(fullPath, jsonStr, 'utf-8');
-    fs.writeFileSync(latestPath, jsonStr, 'utf-8');
+    // Gravação no diretório principal de backups
+    const dirsToSave = [BACKUPS_DIR, path.join('/tmp', 'sst_data')];
+    for (const dir of dirsToSave) {
+      try {
+        if (!fs.existsSync(dir)) {
+          fs.mkdirSync(dir, { recursive: true });
+        }
+        fs.writeFileSync(path.join(dir, storeFilename), jsonStr, 'utf-8');
+        fs.writeFileSync(path.join(dir, latestFilename), jsonStr, 'utf-8');
+        fs.writeFileSync(path.join(dir, timeFilename), jsonStr, 'utf-8');
+      } catch (err) {
+        console.warn(`Aviso ao gravar backup no diretório ${dir}:`, err);
+      }
+    }
 
     // Mantém no máximo 20 backups por empresa
-    const existingFiles = fs.readdirSync(BACKUPS_DIR)
-      .filter(f => f.startsWith(`backup_${empresaId.toLowerCase()}_`) && f.endsWith('.json'))
-      .sort()
-      .reverse();
+    try {
+      if (fs.existsSync(BACKUPS_DIR)) {
+        const existingFiles = fs.readdirSync(BACKUPS_DIR)
+          .filter(f => f.startsWith(`backup_${empresaId.toLowerCase()}_`) && f.endsWith('.json'))
+          .sort()
+          .reverse();
 
-    if (existingFiles.length > 20) {
-      existingFiles.slice(20).forEach(oldFile => {
-        try {
-          fs.unlinkSync(path.join(BACKUPS_DIR, oldFile));
-        } catch (_) {}
-      });
-    }
+        if (existingFiles.length > 20) {
+          existingFiles.slice(20).forEach(oldFile => {
+            try {
+              fs.unlinkSync(path.join(BACKUPS_DIR, oldFile));
+            } catch (_) {}
+          });
+        }
+      }
+    } catch (_) {}
   } catch (err) {
     console.error(`Falha ao gerar backup automático para ${empresaId}:`, err);
   }
@@ -272,7 +369,24 @@ function performAutoBackup(empresaId: string, reason: string) {
 
 export const dbStore = {
   getEmpresasSummary() {
-    // Retorna a lista de empresas ativas registradas em memória
+    // Escaneia os diretórios de persistência para carregar empresas que possam estar no disco
+    const dirsToCheck = [BACKUPS_DIR, path.join('/tmp', 'sst_data')];
+    dirsToCheck.forEach(dir => {
+      try {
+        if (fs.existsSync(dir)) {
+          const files = fs.readdirSync(dir);
+          files.forEach(file => {
+            if ((file.startsWith('store_') || file.startsWith('latest_backup_')) && file.endsWith('.json')) {
+              const empId = file.replace(/^(store_|latest_backup_)/, '').replace(/\.json$/, '').toUpperCase();
+              if (empId && !companyStores[empId]) {
+                getCompanyStore(empId);
+              }
+            }
+          });
+        }
+      } catch (_) {}
+    });
+
     return Object.values(companyStores).map(store => ({
       id: store.id,
       nome: store.nome,
@@ -283,6 +397,44 @@ export const dbStore = {
       criado_em: store.criado_em,
       atualizado_em: store.atualizado_em
     }));
+  },
+
+  restoreBackup(empresaIdRaw: string | undefined, backupData: any) {
+    const storeData = backupData.data || backupData;
+    const empId = (empresaIdRaw || backupData.empresaId || 'EMP-1001').toString().trim().toUpperCase();
+    
+    let store = companyStores[empId];
+    if (!store) {
+      store = getCompanyStore(empId);
+    }
+
+    if (backupData.nome || storeData.nome) {
+      store.nome = backupData.nome || storeData.nome;
+    }
+    if (backupData.logo_url !== undefined || storeData.logo_url !== undefined) {
+      store.logo_url = backupData.logo_url !== undefined ? backupData.logo_url : storeData.logo_url;
+    }
+    if (Array.isArray(storeData.cargos)) {
+      store.cargos = storeData.cargos;
+    }
+    if (Array.isArray(storeData.colaboradores)) {
+      store.colaboradores = storeData.colaboradores;
+    }
+    if (Array.isArray(storeData.templates)) {
+      store.templates = storeData.templates;
+    }
+
+    store.atualizado_em = new Date().toISOString();
+    performAutoBackup(store.id, 'Restauração manual de backup/dados importados');
+
+    return {
+      id: store.id,
+      nome: store.nome,
+      logo_url: store.logo_url,
+      cargosCount: store.cargos.length,
+      templatesCount: store.templates.length,
+      colaboradoresCount: store.colaboradores.length
+    };
   },
 
   getCompanyInfo(empresaId?: string) {

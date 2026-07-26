@@ -249,6 +249,21 @@ async function startServer() {
     }
   });
 
+  // Restaurar / Importar backup JSON para a empresa ativa
+  app.post('/api/backups/restore', (req, res) => {
+    try {
+      const empresaId = getEmpresaId(req);
+      const backupData = req.body;
+      if (!backupData || (typeof backupData !== 'object')) {
+        return res.status(400).json({ error: 'Conteúdo do backup JSON é inválido.' });
+      }
+      const restored = dbStore.restoreBackup(empresaId, backupData);
+      res.json({ message: 'Backup restaurado com sucesso no servidor!', company: restored });
+    } catch (err: any) {
+      res.status(500).json({ error: 'Erro ao restaurar backup', details: err.message });
+    }
+  });
+
   // Download do arquivo de backup específico ou do mais recente da empresa
   app.get('/api/backups/download/:filename?', (req, res) => {
     try {
