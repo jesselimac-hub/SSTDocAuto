@@ -8,8 +8,8 @@ import { generateDocxFromTemplate, createDefaultDocxTemplateBuffer } from './ser
 const app = express();
 const PORT = 3000;
 
-app.use(express.json({ limit: '10mb' }));
-app.use(express.urlencoded({ limit: '10mb', extended: true }));
+app.use(express.json({ limit: '50mb' }));
+app.use(express.urlencoded({ limit: '50mb', extended: true }));
 
 // Helper para extrair o ID da empresa do cabeçalho x-empresa-id, query param ou body
 function getEmpresaId(req) {
@@ -42,6 +42,7 @@ const storage = multer.diskStorage({
 });
 const upload = multer({
   storage,
+  limits: { fileSize: 25 * 1024 * 1024 }, // 25MB
   fileFilter: (_req, file, cb) => {
     if (file.originalname.endsWith('.docx') || file.mimetype.includes('wordprocessingml')) {
       cb(null, true);
@@ -171,21 +172,29 @@ app.get('/api/templates', (req, res) => {
 });
 
 // Upload de Template .docx personalizado para um cargo da empresa
-app.post('/api/templates/upload', upload.single('template_file'), (req, res) => {
-  try {
-    const empresaId = getEmpresaId(req);
-    const idCargo = Number(req.body.id_cargo);
-    if (!idCargo || !req.file) {
-      return res.status(400).json({ error: 'É necessário selecionar um cargo e enviar um arquivo .docx' });
+app.post('/api/templates/upload', (req, res, next) => {
+  upload.single('template_file')(req, res, (err) => {
+    if (err) {
+      if (err.code === 'LIMIT_FILE_SIZE') {
+        return res.status(400).json({ error: 'O arquivo enviado excede o limite permitido pelo servidor (25MB).' });
+      }
+      return res.status(400).json({ error: err.message || 'Erro no upload do arquivo.' });
     }
+    try {
+      const empresaId = getEmpresaId(req);
+      const idCargo = Number(req.body.id_cargo);
+      if (!idCargo || !req.file) {
+        return res.status(400).json({ error: 'É necessário selecionar um cargo e enviar um arquivo .docx' });
+      }
 
-    const relativePath = path.relative(process.cwd(), req.file.path);
-    const updatedTemplate = dbStore.updateTemplateFile(empresaId, idCargo, req.file.originalname, relativePath);
+      const relativePath = path.relative(process.cwd(), req.file.path);
+      const updatedTemplate = dbStore.updateTemplateFile(empresaId, idCargo, req.file.originalname, relativePath);
 
-    res.json({ message: 'Template .docx atualizado com sucesso!', template: updatedTemplate });
-  } catch (err) {
-    res.status(500).json({ error: 'Erro no upload do template', details: err.message });
-  }
+      res.json({ message: 'Template .docx atualizado com sucesso!', template: updatedTemplate });
+    } catch (error) {
+      res.status(500).json({ error: 'Erro no upload do template', details: error.message });
+    }
+  });
 });
 
 // Download do Template .docx original limpo
@@ -198,12 +207,22 @@ app.get('/api/templates/download-default/:idCargo', (req, res) => {
       return res.status(404).json({ error: 'Template não encontrado para este cargo nesta empresa.' });
     }
 
-    const fullPath = path.isAbsolute(template.caminho_arquivo_limpo)
+    let fullPath = path.isAbsolute(template.caminho_arquivo_limpo)
       ? template.caminho_arquivo_limpo
       : path.join(process.cwd(), template.caminho_arquivo_limpo);
 
     if (!fs.existsSync(fullPath)) {
-      return res.status(404).json({ error: 'Arquivo do template não existe no disco do servidor.' });
+      const uploadDir = dbStore.getTemplatesDir();
+      fullPath = path.join(uploadDir, path.basename(template.caminho_arquivo_limpo));
+    }
+
+    if (!fs.existsSync(fullPath)) {
+      const cargo = dbStore.getCargoById(empresaId, idCargo);
+      const cargoName = cargo ? cargo.nome : 'SST';
+      const defaultBuf = createDefaultDocxTemplateBuffer(`ORDEM DE SERVIÇO DE SST - ${cargoName.toUpperCase()} (${empresaId})`);
+      res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document');
+      res.setHeader('Content-Disposition', `attachment; filename="${template.nome_template}"`);
+      return res.send(defaultBuf);
     }
 
     res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document');
@@ -377,6 +396,21 @@ const handleGerarDocumento = async (req, res) => {
 
 app.post('/gerar-documento', handleGerarDocumento);
 app.post('/api/gerar-documento', handleGerarDocumento);
+
+// Middleware global de tratamento de erros no Express
+app.use((err, _req, res, _next) => {
+  console.error('[SST DocAuto Backend Error]', err);
+  const status = err.status || err.statusCode || 500;
+  if (err.type === 'entity.too.large' || err.status === 413) {
+    return res.status(413).json({
+      error: 'O tamanho dos dados/arquivo excede o limite permitido pelo servidor (413 Request Entity Too Large).'
+    });
+  }
+  return res.status(status).json({
+    error: err.message || 'Erro interno no servidor.',
+    code: err.code || 'SERVER_ERROR'
+  });
+});
 
 // =========================================================================
 // VITE MIDDLEWARE (DEV vs PROD)

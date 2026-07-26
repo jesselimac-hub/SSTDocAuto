@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { FileCode2, Download, Upload, CheckCircle, AlertCircle, Info, Tag, FolderOpen, ShieldCheck, FileSearch, XCircle } from 'lucide-react';
 import PizZip from 'pizzip';
 import { Cargo, TemplateDoc } from '../types';
-import { apiFetch } from '../lib/api';
+import { apiFetch, parseJsonResponse } from '../lib/api';
 
 interface Props {
   cargos: Cargo[];
@@ -27,8 +27,10 @@ export const TemplateManager: React.FC<Props> = ({ cargos }) => {
 
   const fetchTemplates = () => {
     apiFetch('/api/templates')
-      .then(res => res.json())
-      .then(data => setTemplates(data))
+      .then(res => parseJsonResponse<TemplateDoc[]>(res))
+      .then(({ data }) => {
+        if (data) setTemplates(data);
+      })
       .catch(err => console.error('Erro ao buscar templates:', err));
   };
 
@@ -100,9 +102,10 @@ export const TemplateManager: React.FC<Props> = ({ cargos }) => {
         body: formData,
       });
 
-      if (!res.ok) {
-        const errJson = await res.json();
-        throw new Error(errJson.error || 'Erro ao fazer upload do template.');
+      const { data: resultData, error: parseErr } = await parseJsonResponse(res);
+
+      if (parseErr || !res.ok) {
+        throw new Error(parseErr || 'Erro ao fazer upload do template.');
       }
 
       setMessage(`Novo template .docx atualizado com sucesso no servidor!`);

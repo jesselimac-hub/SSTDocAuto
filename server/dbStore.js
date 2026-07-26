@@ -2,15 +2,27 @@ import fs from 'fs';
 import path from 'path';
 import { createDefaultDocxTemplateBuffer } from './docxEngine.js';
 
-const TEMPLATES_DIR = path.join(process.cwd(), 'templates');
-const BACKUPS_DIR = path.join(process.cwd(), 'backups');
+function resolveWritableDir(dirName) {
+  const localDir = path.join(process.cwd(), dirName);
+  try {
+    if (!fs.existsSync(localDir)) {
+      fs.mkdirSync(localDir, { recursive: true });
+    }
+    const testFile = path.join(localDir, `.write_test_${Date.now()}`);
+    fs.writeFileSync(testFile, 'test');
+    fs.unlinkSync(testFile);
+    return localDir;
+  } catch (_) {
+    const tmpDir = path.join('/tmp', dirName);
+    if (!fs.existsSync(tmpDir)) {
+      try { fs.mkdirSync(tmpDir, { recursive: true }); } catch (e) {}
+    }
+    return tmpDir;
+  }
+}
 
-if (!fs.existsSync(TEMPLATES_DIR)) {
-  try { fs.mkdirSync(TEMPLATES_DIR, { recursive: true }); } catch (_) {}
-}
-if (!fs.existsSync(BACKUPS_DIR)) {
-  try { fs.mkdirSync(BACKUPS_DIR, { recursive: true }); } catch (_) {}
-}
+const TEMPLATES_DIR = resolveWritableDir('templates');
+const BACKUPS_DIR = resolveWritableDir('backups');
 
 const companyStores = {};
 
